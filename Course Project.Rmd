@@ -1,0 +1,115 @@
+#Practical Machine Learning Course Project
+####Author: Chong Kean Meng  
+
+##Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The project goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+```{r, echo=FALSE}
+suppressWarnings(library(caret))
+suppressWarnings(library(rpart))
+suppressWarnings(library(rpart.plot))
+suppressWarnings(library(RColorBrewer))
+suppressWarnings(library(rattle))
+suppressWarnings(library(randomForest))
+suppressWarnings(library(gbm))
+suppressWarnings(library(plyr))
+```
+
+##Data Processing
+```{r}
+#Acquire Training and Test Data
+if (!file.exists("pml-training.csv")) {
+    download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+                  destfile = "pml-training.csv")
+}
+if (!file.exists("pml-testing.csv")) {
+    download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+}
+
+#Load data
+train <- read.csv("pml-training.csv", na.strings=c("#DIV/0!"))                                                
+test <- read.csv("pml-testing.csv", na.strings=c("#DIV/0!"))
+dim(train)
+dim(test)
+```
+Clean the data by removing missing values and unused variables.
+```{r}
+sum(complete.cases(train))
+
+##Remove columns that contain NA missing values.
+train <- train[, colSums(is.na(train)) == 0] 
+test <- test[, colSums(is.na(test)) == 0] 
+
+## Remove columns that do not contribute to the accelerometer measurements.
+classe <- train$classe
+trainRemove <- grepl("^X|timestamp|window", names(train))
+train <- train[, !trainRemove]
+trainCleaned <- train[, sapply(train, is.numeric)]
+trainCleaned$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(test))
+test <- test[, !testRemove]
+testCleaned <- test[, sapply(test, is.numeric)]
+dim(trainCleaned)
+dim(testCleaned)
+
+#Verify there is no zero covariates as they are not likely to be good predictors
+myDataNZV <- nearZeroVar(train, saveMetrics=TRUE)
+myDataNZV
+```
+
+##Cross Validation
+The pml.training data will be used to train the model.  To estimate the pml.testing data accuracy, the pml.training data is splitted into 60% (Training set) and 40% (Test set).
+```{r}
+set.seed(12345) #for reproducible purpose
+inTrain <- createDataPartition(y=trainCleaned$classe, p=0.6, list=FALSE)
+mytrain <- trainCleaned[inTrain, ]
+mytest <- trainCleaned[-inTrain, ]
+```
+```{r}
+dim(mytrain)
+```
+```{r}
+dim(mytest)
+```
+
+##Determine Prediction Model
+####Comparison of prediction models - Regression and Classification Trees and Random Forest
+###Regression and Classification Trees 
+```{r}
+modelRpart <- rpart(classe ~ ., data=mytrain, method="class")
+prp(modelRpart)
+predictRpart <- predict(modelRpart, mytest, type = "class")
+confusionMatrix(mytest$classe, predictRpart)
+```
+Decision Tree has an accuracy rate of **0.7267** and Out of Sample Error rate is **0.2733** 
+
+###Random Forest
+```{r}
+controlRf <- trainControl(method="cv", 10)
+modelRf <- train(classe ~ ., data=mytrain, method="rf", trControl=controlRf, ntree=250)
+modelRf
+predictRf <- predict(modelRf, mytest)
+confusionMatrix(mytest$classe, predictRf)
+```
+Random Forest has an accuracy rate of **0.9927** and Out of Sample Error rate is **0.0073** 
+
+> Between the two models, Random Forest is a better Prediction Model.  
+
+##Predicting Test Data Set using Random Forest
+```{r}
+outcome = predict(modelRf, testCleaned)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(outcome)
+```
